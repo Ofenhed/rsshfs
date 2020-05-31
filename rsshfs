@@ -24,6 +24,38 @@ lpath="$1"
 IFS=: read rhost rpath <<< "$2"
 qrpath="$(quote "$rpath")"
 
+sftp-server() {
+  BIND_ARG=""
+  SFTP_ARG=""
+  if [[ "$1" == "-R" ]] ; then
+    BIND_ARG=",ro"
+    SFTP_ARG="-R"
+  fi
+  for SERVER in /usr/lib/openssh/sftp-server /usr/lib/ssh/sftp-server ; do
+    if [[ -f "$SERVER" ]] ; then
+      unshare --mount-proc -r -u -i -n -p -f -- bash -c \
+        'mount -t tmpfs -o nosuid,nodev none /mnt
+         echo step
+         mkdir /mnt/{usr,lib,lib64,mnt,dev,etc}
+         mount -t tmpfs -o nosuid,noexec,dev none /mnt/dev
+         for I in usr lib lib64 mnt ; do
+           echo step
+           mount -o bind,ro /{,mnt/}"$I"
+         done
+         for I in dev/null etc/passwd ; do
+           touch /mnt/"$I"
+           mount -o bind /{,mnt/}"$I"
+         done
+         ls /mnt 1>&2
+         ls /mnt/dev 1>&2
+         mount -o bind'"$BIND_ARG"' "'"$lpath"'" /mnt/mnt
+         echo step
+         unshare -U --root=/mnt/ "'"$SERVER"'" '"$SFTP_ARG"
+      break
+    fi
+  done
+}
+
 if [[ "-u" = "$lpath" ]]
 then
     printf "Unmounting '$rhost:$rpath'...\n"
@@ -48,13 +80,13 @@ else
 
     # also set read-only on the server side (the local host)
     unset sftpargs
-    [[ "$readonly" ]] && sftpargs=(-R)
+    [[ "$readonly" ]] && sftpargs="readonly"
 
     printf "Mounting '$lpath' on '$rhost:$rpath'...\n"
     fifo=/tmp/rsshfs-$$
     rm -f "$fifo"
     mkfifo -m600 "$fifo" &&
-    < "$fifo" /usr/lib/openssh/sftp-server "${sftpargs[@]}" |
-      ssh "$rhost" sshfs -o slave ":$qlpath" "$qrpath" "$qall" > "$fifo"
+    < "$fifo" sftp-server "${sftpargs[@]}" |
+      ssh "$rhost" sshfs -o slave ":/mnt" "$qrpath" "$qall" > "$fifo"
     rm "$fifo"
 fi
