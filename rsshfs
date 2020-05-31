@@ -35,21 +35,16 @@ sftp-server() {
     if [[ -f "$SERVER" ]] ; then
       unshare --mount-proc -r -u -i -n -p -f -- bash -c \
         'mount -t tmpfs -o nosuid,nodev none /mnt
-         echo step
          mkdir /mnt/{usr,lib,lib64,mnt,dev,etc}
          mount -t tmpfs -o nosuid,noexec,dev none /mnt/dev
          for I in usr lib lib64 mnt ; do
-           echo step
            mount -o bind,ro /{,mnt/}"$I"
          done
          for I in dev/null etc/passwd ; do
            touch /mnt/"$I"
            mount -o bind /{,mnt/}"$I"
          done
-         ls /mnt 1>&2
-         ls /mnt/dev 1>&2
          mount -o bind'"$BIND_ARG"' "'"$lpath"'" /mnt/mnt
-         echo step
          unshare -U --root=/mnt/ "'"$SERVER"'" '"$SFTP_ARG"
       break
     fi
